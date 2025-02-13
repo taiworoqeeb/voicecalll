@@ -7,10 +7,9 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: "*" } });
 
-// Serve static files (frontend)
 app.use(express.static(path.join(__dirname, "public")));
 
-let users = {}; // Store connected users and their rooms
+let users = {}; // Stores {socketId: roomId}
 
 io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
@@ -20,7 +19,7 @@ io.on("connection", (socket) => {
         users[socket.id] = room;
         console.log(`User ${socket.id} joined room: ${room}`);
 
-        // Notify other users in the room
+        // Notify existing user
         const otherUser = Object.keys(users).find(id => users[id] === room && id !== socket.id);
         if (otherUser) {
             io.to(otherUser).emit("user-connected", socket.id);
@@ -50,7 +49,6 @@ io.on("connection", (socket) => {
         const room = users[socket.id];
         delete users[socket.id];
 
-        // Notify the other user in the room
         if (room) {
             const otherUser = Object.keys(users).find(id => users[id] === room);
             if (otherUser) {

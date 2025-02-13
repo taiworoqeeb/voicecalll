@@ -15,6 +15,7 @@
             background: #f4f4f4;
             margin: 0;
         }
+
         .container {
             background: white;
             padding: 20px;
@@ -23,7 +24,11 @@
             text-align: center;
             width: 350px;
         }
-        h2 { color: #333; }
+
+        h2 {
+            color: #333;
+        }
+
         input {
             padding: 10px;
             width: 90%;
@@ -33,6 +38,7 @@
             font-size: 16px;
             text-align: center;
         }
+
         button {
             padding: 10px 15px;
             border: none;
@@ -43,20 +49,18 @@
             width: 100%;
             margin-bottom: 5px;
         }
+
         .connect { background: #007BFF; color: white; }
         .disconnect { background: #DC3545; color: white; display: none; }
         .mute { background: #FFA500; color: white; display: none; }
         .connect:hover { background: #0056b3; }
         .disconnect:hover { background: #a71d2a; }
         .mute:hover { background: #cc8400; }
-        #status { margin-top: 10px; font-weight: bold; color: green; }
-        canvas {
-            width: 100%;
-            height: 50px;
-            background: black;
-            display: none;
-            border-radius: 5px;
+
+        #status {
             margin-top: 10px;
+            font-weight: bold;
+            color: green;
         }
     </style>
 </head>
@@ -68,37 +72,28 @@
         <button id="disconnect" class="disconnect">End Call</button>
         <button id="mute" class="mute">Mute</button>
         <p id="status">Not connected</p>
-        <p id="callTimer">⏳ 00:00</p>
-        <canvas id="visualizer"></canvas>
         <audio id="remoteAudio" autoplay></audio>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        let socket;
-        let localStream;
-        let peerConnection;
-        let isMuted = false;
+        let socket, localStream, peerConnection, isMuted = false;
         let room;
-        let callStartTime;
-        let callTimerInterval;
         const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-        const canvas = document.getElementById("visualizer");
-        const ctx = canvas.getContext("2d");
 
         const connectBtn = document.getElementById("connect");
         const disconnectBtn = document.getElementById("disconnect");
         const muteBtn = document.getElementById("mute");
         const statusText = document.getElementById("status");
-        const callTimer = document.getElementById("callTimer");
-        const remoteAudio = document.getElementById("remoteAudio");
 
         connectBtn.addEventListener("click", async () => {
             room = document.getElementById("room").value;
             if (!room) return alert("Enter a room ID");
 
-            socket = io({ transports: ["websocket"], reconnection: true });
-
+            socket = io({
+                transports: ["websocket"],
+                reconnection: true
+            });
             socket.emit("join", room);
             statusText.innerText = "Waiting for another user...";
             connectBtn.style.display = "none";
@@ -122,54 +117,26 @@
                 peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
             });
 
-            socket.on("disconnect", () => {
-                statusText.innerText = "Disconnected";
+            socket.on("user-disconnected", () => {
+                statusText.innerText = "Call ended";
                 cleanup();
             });
         });
 
-        disconnectBtn.addEventListener("click", () => {
-            if (socket) {
-                socket.disconnect();
-                statusText.innerText = "Call ended";
-            }
-            cleanup();
-        });
-
-        muteBtn.addEventListener("click", () => {
-            if (localStream) {
-                localStream.getAudioTracks().forEach(track => track.enabled = isMuted);
-                isMuted = !isMuted;
-                muteBtn.innerText = isMuted ? "Unmute" : "Mute";
-            }
-        });
+        disconnectBtn.addEventListener("click", cleanup);
+        muteBtn.addEventListener("click", toggleMute);
 
         async function startCall(target) {
-            localStream = await navigator.mediaDevices.getUserMedia({
-                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-            });
-
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             peerConnection = new RTCPeerConnection(config);
-            localStream.getTracks().forEach(track => {
-                if (track.kind === "audio") {
-                    peerConnection.addTrack(track, localStream);
-                }
-            });
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    socket.emit("candidate", { target, candidate: event.candidate });
-                }
+                if (event.candidate) socket.emit("candidate", { target, candidate: event.candidate });
             };
 
             peerConnection.ontrack = (event) => {
-                if (!remoteAudio.srcObject) {
-                    remoteAudio.srcObject = event.streams[0];
-                }
-                remoteAudio.muted = false;
-                statusText.innerText = "Call in progress...";
-                startCallTimer();
-                startVisualizer(localStream);
+                document.getElementById("remoteAudio").srcObject = event.streams[0];
             };
 
             const offer = await peerConnection.createOffer();
@@ -179,61 +146,18 @@
 
         async function handleOffer(data) {
             peerConnection = new RTCPeerConnection(config);
-            peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
 
-            localStream = await navigator.mediaDevices.getUserMedia({
-                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-            });
-
-            localStream.getTracks().forEach(track => {
-                if (track.kind === "audio") {
-                    peerConnection.addTrack(track, localStream);
-                }
-            });
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
             socket.emit("answer", { target: data.from, answer });
-
-            statusText.innerText = "Call in progress...";
-            startCallTimer();
-            startVisualizer(localStream);
         }
 
         function cleanup() {
-            if (peerConnection) peerConnection.close();
-            if (localStream) localStream.getTracks().forEach(track => track.stop());
             if (socket) socket.disconnect();
-
-            clearInterval(callTimerInterval);
-            callTimer.innerText = "⏳ 00:00";
-            connectBtn.style.display = "block";
-            disconnectBtn.style.display = "none";
-            muteBtn.style.display = "none";
-            statusText.innerText = "Not connected";
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-        }
-
-        function startCallTimer() {
-            callStartTime = Date.now();
-            callTimerInterval = setInterval(() => {
-                let elapsed = Math.floor((Date.now() - callStartTime) / 1000);
-                callTimer.innerText = `⏳ ${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
-            }, 1000);
-        }
-
-        function startVisualizer(stream) {
-            canvas.style.display = "block";
-            let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            let analyser = audioCtx.createAnalyser();
-            let source = audioCtx.createMediaStreamSource(stream);
-            source.connect(analyser);
-            analyser.fftSize = 256;
-            function draw() {
-                requestAnimationFrame(draw);
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
-            draw();
         }
     </script>
 </body>
