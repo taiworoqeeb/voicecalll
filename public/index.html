@@ -15,7 +15,6 @@
             background: #f4f4f4;
             margin: 0;
         }
-
         .container {
             background: white;
             padding: 20px;
@@ -24,11 +23,7 @@
             text-align: center;
             width: 350px;
         }
-
-        h2 {
-            color: #333;
-        }
-
+        h2 { color: #333; }
         input {
             padding: 10px;
             width: 90%;
@@ -38,7 +33,6 @@
             font-size: 16px;
             text-align: center;
         }
-
         button {
             padding: 10px 15px;
             border: none;
@@ -49,20 +43,13 @@
             width: 100%;
             margin-bottom: 5px;
         }
-
         .connect { background: #007BFF; color: white; }
         .disconnect { background: #DC3545; color: white; display: none; }
         .mute { background: #FFA500; color: white; display: none; }
         .connect:hover { background: #0056b3; }
         .disconnect:hover { background: #a71d2a; }
         .mute:hover { background: #cc8400; }
-
-        #status {
-            margin-top: 10px;
-            font-weight: bold;
-            color: green;
-        }
-
+        #status { margin-top: 10px; font-weight: bold; color: green; }
         canvas {
             width: 100%;
             height: 50px;
@@ -104,6 +91,7 @@
         const muteBtn = document.getElementById("mute");
         const statusText = document.getElementById("status");
         const callTimer = document.getElementById("callTimer");
+        const remoteAudio = document.getElementById("remoteAudio");
 
         connectBtn.addEventListener("click", async () => {
             room = document.getElementById("room").value;
@@ -157,10 +145,16 @@
         });
 
         async function startCall(target) {
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            peerConnection = new RTCPeerConnection(config);
+            localStream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            });
 
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            peerConnection = new RTCPeerConnection(config);
+            localStream.getTracks().forEach(track => {
+                if (track.kind === "audio") {
+                    peerConnection.addTrack(track, localStream);
+                }
+            });
 
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
@@ -169,7 +163,10 @@
             };
 
             peerConnection.ontrack = (event) => {
-                document.getElementById("remoteAudio").srcObject = event.streams[0];
+                if (!remoteAudio.srcObject) {
+                    remoteAudio.srcObject = event.streams[0];
+                }
+                remoteAudio.muted = false;
                 statusText.innerText = "Call in progress...";
                 startCallTimer();
                 startVisualizer(localStream);
@@ -184,8 +181,15 @@
             peerConnection = new RTCPeerConnection(config);
             peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
 
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            localStream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            });
+
+            localStream.getTracks().forEach(track => {
+                if (track.kind === "audio") {
+                    peerConnection.addTrack(track, localStream);
+                }
+            });
 
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
@@ -197,18 +201,10 @@
         }
 
         function cleanup() {
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
-            }
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
-            }
-            if (socket) {
-                socket.disconnect();
-                socket = null;
-            }
+            if (peerConnection) peerConnection.close();
+            if (localStream) localStream.getTracks().forEach(track => track.stop());
+            if (socket) socket.disconnect();
+
             clearInterval(callTimerInterval);
             callTimer.innerText = "⏳ 00:00";
             connectBtn.style.display = "block";
@@ -222,9 +218,7 @@
             callStartTime = Date.now();
             callTimerInterval = setInterval(() => {
                 let elapsed = Math.floor((Date.now() - callStartTime) / 1000);
-                let minutes = String(Math.floor(elapsed / 60)).padStart(2, "0");
-                let seconds = String(elapsed % 60).padStart(2, "0");
-                callTimer.innerText = `⏳ ${minutes}:${seconds}`;
+                callTimer.innerText = `⏳ ${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
             }, 1000);
         }
 
@@ -235,17 +229,9 @@
             let source = audioCtx.createMediaStreamSource(stream);
             source.connect(analyser);
             analyser.fftSize = 256;
-            let bufferLength = analyser.frequencyBinCount;
-            let dataArray = new Uint8Array(bufferLength);
-
             function draw() {
-                analyser.getByteFrequencyData(dataArray);
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = "lime";
-                for (let i = 0; i < bufferLength; i++) {
-                    ctx.fillRect(i * 4, canvas.height, 2, -dataArray[i] / 2);
-                }
                 requestAnimationFrame(draw);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
             draw();
         }
