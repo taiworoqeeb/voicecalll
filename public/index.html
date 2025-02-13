@@ -1,164 +1,255 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Voice Call App</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background: #f4f4f4;
-            margin: 0;
-        }
+      body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: #f4f4f4;
+        margin: 0;
+      }
 
-        .container {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
-            text-align: center;
-            width: 350px;
-        }
+      .container {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        width: 350px;
+      }
 
-        h2 {
-            color: #333;
-        }
+      h2 {
+        color: #333;
+      }
 
-        input {
-            padding: 10px;
-            width: 90%;
-            margin-bottom: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            font-size: 16px;
-            text-align: center;
-        }
+      input {
+        padding: 10px;
+        width: 90%;
+        margin-bottom: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        font-size: 16px;
+        text-align: center;
+      }
 
-        button {
-            padding: 10px 15px;
-            border: none;
-            font-size: 16px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: 0.3s;
-            width: 100%;
-            margin-bottom: 5px;
-        }
+      button {
+        padding: 10px 15px;
+        border: none;
+        font-size: 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: 0.3s;
+        width: 100%;
+        margin-bottom: 5px;
+      }
 
-        .connect { background: #007BFF; color: white; }
-        .disconnect { background: #DC3545; color: white; display: none; }
-        .mute { background: #FFA500; color: white; display: none; }
-        .connect:hover { background: #0056b3; }
-        .disconnect:hover { background: #a71d2a; }
-        .mute:hover { background: #cc8400; }
+      .connect {
+        background: #007bff;
+        color: white;
+      }
+      .disconnect {
+        background: #dc3545;
+        color: white;
+        display: none;
+      }
+      .mute {
+        background: #ffa500;
+        color: white;
+        display: none;
+      }
+      .connect:hover {
+        background: #0056b3;
+      }
+      .disconnect:hover {
+        background: #a71d2a;
+      }
+      .mute:hover {
+        background: #cc8400;
+      }
 
-        #status {
-            margin-top: 10px;
-            font-weight: bold;
-            color: green;
-        }
+      #status {
+        margin-top: 10px;
+        font-weight: bold;
+        color: green;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <h2>Voice Call</h2>
-        <input id="room" placeholder="Enter Room ID">
-        <button id="connect" class="connect">Connect</button>
-        <button id="disconnect" class="disconnect">End Call</button>
-        <button id="mute" class="mute">Mute</button>
-        <p id="status">Not connected</p>
-        <audio id="remoteAudio" autoplay></audio>
+      <h2>Voice Call</h2>
+      <input id="room" placeholder="Enter Room ID" />
+      <button id="connect" class="connect">Connect</button>
+      <button id="disconnect" class="disconnect">End Call</button>
+      <button id="mute" class="mute">Mute</button>
+      <p id="status">Not connected</p>
+      <audio id="remoteAudio" autoplay></audio>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        let socket, localStream, peerConnection, isMuted = false;
-        let room;
-        const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+      let socket;
+      let localStream;
+      let peerConnection;
+      let isMuted = false;
+      let room;
+      const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
-        const connectBtn = document.getElementById("connect");
-        const disconnectBtn = document.getElementById("disconnect");
-        const muteBtn = document.getElementById("mute");
-        const statusText = document.getElementById("status");
+      const connectBtn = document.getElementById("connect");
+      const disconnectBtn = document.getElementById("disconnect");
+      const muteBtn = document.getElementById("mute");
+      const statusText = document.getElementById("status");
+      const remoteAudio = document.getElementById("remoteAudio");
 
-        connectBtn.addEventListener("click", async () => {
-            room = document.getElementById("room").value;
-            if (!room) return alert("Enter a room ID");
+      connectBtn.addEventListener("click", async () => {
+        room = document.getElementById("room").value;
+        if (!room) return alert("Enter a room ID");
 
-            socket = io({
-                transports: ["websocket"],
-                reconnection: true
-            });
-            socket.emit("join", room);
-            statusText.innerText = "Waiting for another user...";
-            connectBtn.style.display = "none";
-            disconnectBtn.style.display = "block";
-            muteBtn.style.display = "block";
-
-            socket.on("user-connected", async (userId) => {
-                statusText.innerText = "User connected! Starting call...";
-                await startCall(userId);
-            });
-
-            socket.on("offer", async (data) => {
-                await handleOffer(data);
-            });
-
-            socket.on("answer", (data) => {
-                peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-            });
-
-            socket.on("candidate", (data) => {
-                peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-            });
-
-            socket.on("user-disconnected", () => {
-                statusText.innerText = "Call ended";
-                cleanup();
-            });
+        socket = io({
+          transports: ["websocket"],
+          reconnection: true,
+          reconnectionAttempts: 10,
+          reconnectionDelay: 2000,
         });
 
-        disconnectBtn.addEventListener("click", cleanup);
-        muteBtn.addEventListener("click", toggleMute);
+        socket.emit("join", room);
+        statusText.innerText = "Waiting for another user...";
+        connectBtn.style.display = "none";
+        disconnectBtn.style.display = "block";
+        muteBtn.style.display = "block";
 
-        async function startCall(target) {
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            peerConnection = new RTCPeerConnection(config);
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+        socket.on("user-connected", async (userId) => {
+          statusText.innerText = "User connected! Starting call...";
+          await startCall(userId);
+        });
 
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) socket.emit("candidate", { target, candidate: event.candidate });
-            };
+        socket.on("offer", async (data) => {
+          await handleOffer(data);
+        });
 
-            peerConnection.ontrack = (event) => {
-                document.getElementById("remoteAudio").srcObject = event.streams[0];
-            };
+        socket.on("answer", (data) => {
+          peerConnection.setRemoteDescription(
+            new RTCSessionDescription(data.answer),
+          );
+        });
 
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            socket.emit("offer", { target, offer });
+        socket.on("candidate", (data) => {
+          peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        });
+
+        socket.on("call-ended", () => {
+          statusText.innerText = "Call ended";
+          cleanup();
+        });
+
+        socket.on("user-disconnected", () => {
+          statusText.innerText = "User disconnected";
+          cleanup();
+        });
+      });
+
+      disconnectBtn.addEventListener("click", () => {
+        if (socket) {
+          socket.emit("end-call");
+        }
+        cleanup();
+      });
+      muteBtn.addEventListener("click", toggleMute);
+
+      async function startCall(target) {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+
+        // Ensure peerConnection is initialized before using it
+        if (!peerConnection) {
+          peerConnection = new RTCPeerConnection(config);
+          peerConnection.onicecandidate = (event) => {
+            if (event.candidate)
+              socket.emit("candidate", { target, candidate: event.candidate });
+          };
+          peerConnection.ontrack = (event) => {
+            remoteAudio.srcObject = event.streams[0];
+          };
         }
 
-        async function handleOffer(data) {
-            peerConnection = new RTCPeerConnection(config);
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+        localStream
+          .getTracks()
+          .forEach((track) => peerConnection.addTrack(track, localStream));
 
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit("offer", { target, offer });
+      }
 
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            socket.emit("answer", { target: data.from, answer });
+      async function handleOffer(data) {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+
+        if (!peerConnection) {
+          peerConnection = new RTCPeerConnection(config);
+          peerConnection.onicecandidate = (event) => {
+            if (event.candidate)
+              socket.emit("candidate", {
+                target: data.from,
+                candidate: event.candidate,
+              });
+          };
+          peerConnection.ontrack = (event) => {
+            remoteAudio.srcObject = event.streams[0];
+          };
         }
 
-        function cleanup() {
-            if (socket) socket.disconnect();
+        localStream
+          .getTracks()
+          .forEach((track) => peerConnection.addTrack(track, localStream));
+
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(data.offer),
+        );
+
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.emit("answer", { target: data.from, answer });
+
+        statusText.innerText = "Call in progress...";
+      }
+
+      function cleanup() {
+        if (peerConnection) {
+          peerConnection.close();
+          peerConnection = null;
         }
+        if (localStream) {
+          localStream.getTracks().forEach((track) => track.stop());
+          localStream = null;
+        }
+        if (socket) {
+          socket.disconnect();
+          socket = null;
+        }
+        connectBtn.style.display = "block";
+        disconnectBtn.style.display = "none";
+        muteBtn.style.display = "none";
+        statusText.innerText = "Call ended";
+      }
+
+      function toggleMute() {
+        if (localStream) {
+          localStream.getAudioTracks().forEach((track) => {
+            track.enabled = !track.enabled;
+          });
+          isMuted = !isMuted;
+          muteBtn.innerText = isMuted ? "Unmute" : "Mute";
+        }
+      }
     </script>
-</body>
+  </body>
 </html>
